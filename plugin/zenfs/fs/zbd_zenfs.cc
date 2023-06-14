@@ -228,7 +228,7 @@ IOStatus ZonedBlockDevice::Open(bool readonly, bool exclusive) {
   uint64_t i = 0;
   uint64_t m = 0;
   // Reserve one zone for metadata and another one for extent migration
-  int reserved_zones = 1;
+  int reserved_zones = 2;
 
   if (!readonly && !exclusive)
     return IOStatus::InvalidArgument("Write opens must be exclusive");
@@ -333,10 +333,10 @@ uint64_t ZonedBlockDevice::GetMaxIOZones(){
 }
 
 IOStatus ZonedBlockDevice::AdjustIOZones(int lifetime, int value) {
-
+    level_mtx_[lifetime].lock();
 
   if (value < 0) {
-    level_mtx_[lifetime].lock();
+
     Zone *candidate_zone = nullptr;
     IOStatus s;
     int64_t candidate_capacity;
@@ -353,6 +353,7 @@ IOStatus ZonedBlockDevice::AdjustIOZones(int lifetime, int value) {
       n_fixed_zones_[lifetime] +=value;
     } else {
       int target = (value*-1) - (n_fixed_zones_[lifetime] - used_zone_num);
+
       for (int i=1;i<=target;i++) {
         candidate_capacity = -1;
         candidate_zone = nullptr;
@@ -366,16 +367,26 @@ IOStatus ZonedBlockDevice::AdjustIOZones(int lifetime, int value) {
             }
           }
         }
-        if (candidate_zone == nullptr)
+        if (candidate_zone == nullptr) {
+          std::cout << "[AdjustIOZones] candidate not found!\n";
           break;
+        }
+          
 
         while(!candidate_zone->Acquire());
 
         if (!candidate_zone->IsFull()) {
-          candidate_zone->CheckRelease();
-          candidate_zone->Finish();
+          s = candidate_zone->Finish();
+          if (!s.ok()) {
+            std::cout << "[AdjustIOZones] finish failed\n";
+            candidate_zone->Release();
+          }
+          s = candidate_zone->CheckRelease();
+          if (!s.ok()) {
+            std::cout << "[AdjustIOZones] release failed\n";
+          }
           PutActiveIOZoneToken();
-        }
+        } 
       }
       n_fixed_zones_[lifetime] +=value;
     }
@@ -383,12 +394,12 @@ IOStatus ZonedBlockDevice::AdjustIOZones(int lifetime, int value) {
 
     
 
-    level_mtx_[lifetime].unlock();
+
   } else {
       n_fixed_zones_[lifetime] +=value;
   }
 
-
+  level_mtx_[lifetime].unlock();
 
   return IOStatus::OK();
 }
@@ -1190,6 +1201,10 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
   ZenFSMetricsLatencyGuard guard(metrics_, tag, Env::Default());
   metrics_->ReportQPS(ZENFS_IO_ALLOC_QPS, 1);
 
+  if (zone_alloc_mode>=4){ 
+    level_mtx_[file_lifetime].lock();
+  }
+
   // Check if a deferred IO error was set
   s = GetZoneDeferredStatus();
   if (!s.ok()) {
@@ -1197,6 +1212,7 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
   }
 
   if (io_type != IOType::kWAL) { // If finish_threashold > remaining_capacity 
+
     s = ApplyFinishThreshold(); 
     if (!s.ok()) {
       return s;
@@ -1318,7 +1334,7 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
 
     uint64_t begin = env_->NowMicros();
 
-    level_mtx_[file_lifetime].lock();
+    //level_mtx_[file_lifetime].lock();
 
     s = GetDynamicOpenZone(file_lifetime, &best_diff, &allocated_zone);
     if(!s.ok()) {
@@ -1347,7 +1363,7 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
     }
 
 
-    level_mtx_[file_lifetime].unlock();
+    //level_mtx_[file_lifetime].unlock();
 
    /* 
    if (file_lifetime!=2 && medium_accumulated_ && long_accumulated_ && extreme_accumulated_) {
@@ -1359,7 +1375,7 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
 
   } else if (zone_alloc_mode == 5) { // static zone allocation
     
-    level_mtx_[file_lifetime].lock();
+    //level_mtx_[file_lifetime].lock();
 
     s = GetFixedOpenZone(file_lifetime, &best_diff, &allocated_zone);
     if(!s.ok()) {
@@ -1373,7 +1389,7 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
       allocated_zone->lifetime_ = file_lifetime;
     }
 
-    level_mtx_[file_lifetime].unlock();     
+    //level_mtx_[file_lifetime].unlock();     
 
   } else { // what the hell
 
@@ -1416,10 +1432,14 @@ IOStatus ZonedBlockDevice::AllocateIOZone(Env::WriteLifeTimeHint file_lifetime, 
     LogZoneStats();
   }
 
+  if (zone_alloc_mode>=4){ 
+    level_mtx_[file_lifetime].unlock();
+  }
+
   *out_zone = allocated_zone;
   auto now_time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
-  if (!logging_mode && false) { // 5 -> debugging mode
+  if (false || (!logging_mode && false)) { // 5 -> debugging mode
       std::cout << "[" << std::this_thread::get_id() << "]" << " file_liftime: " << \
   file_lifetime << ", zone_lifetime: " << allocated_zone->lifetime_ << ", zone_nr: " << allocated_zone->GetZoneNr() << ", active_io_zone: " << \
   active_io_zones_ << ", open_io_zone: " << open_io_zones_ <<  "  " << std::ctime(&now_time) << "\n"; 
