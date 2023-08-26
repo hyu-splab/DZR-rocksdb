@@ -48,6 +48,7 @@ DEFINE_string(backup_path, "", "Path to backup files");
 DEFINE_string(src_file, "", "Source file path");
 DEFINE_string(dest_file, "", "Destination file path");
 DEFINE_bool(enable_gc, false, "Enable garbage collection");
+DEFINE_int32(max_background_jobs, 0, "The maximum number of concurrent background jobs that can occur in parallel.");
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -160,6 +161,11 @@ int zenfs_tool_mkfs() {
     return 1;
   }
 
+  if (FLAGS_max_background_jobs == 0) {
+    fprintf(stderr, "You need to specify max_background_jobs (2~8) \n");
+    return 1;
+  }
+
   if (create_aux_dir(FLAGS_aux_path.c_str())) return 1;
 
   std::unique_ptr<ZonedBlockDevice> zbd = zbd_open(false, true);
@@ -181,8 +187,8 @@ int zenfs_tool_mkfs() {
   zenFS.reset(new ZenFS(zbd.release(), FileSystem::Default(), nullptr));
 
   if (FLAGS_aux_path.back() != '/') FLAGS_aux_path.append("/");
-
-  s = zenFS->MkFS(FLAGS_aux_path, FLAGS_finish_threshold, FLAGS_enable_gc);
+  // s = zenFS->MkFS(FLAGS_aux_path, FLAGS_finish_threshold, FLAGS_enable_gc);
+  s = zenFS->MkFS(FLAGS_aux_path, FLAGS_finish_threshold, FLAGS_enable_gc, FLAGS_max_background_jobs);
   if (!s.ok()) {
     fprintf(stderr, "Failed to create file system, error: %s\n",
             s.ToString().c_str());

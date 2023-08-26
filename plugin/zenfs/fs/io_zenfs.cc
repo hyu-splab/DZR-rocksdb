@@ -268,7 +268,7 @@ void ZoneFile::ClearExtents() {
 
 IOStatus ZoneFile::CloseActiveZone() {
   IOStatus s = IOStatus::OK();
-  
+
   if (active_zone_) {
     bool full = active_zone_->IsFull();
     s = active_zone_->Close();
@@ -279,6 +279,7 @@ IOStatus ZoneFile::CloseActiveZone() {
     zbd_->PutOpenIOZoneToken();
     if (full) {
       zbd_->PutActiveIOZoneToken();
+      
     }
   }
 
@@ -316,6 +317,7 @@ IOStatus ZoneFile::CloseWR() {
   ReleaseWRLock();
   return CloseActiveZone();
 }
+
 
 IOStatus ZoneFile::PersistMetadata() {
   assert(metadata_writer_ != NULL);
@@ -448,9 +450,10 @@ IOStatus ZoneFile::AllocateNewZone() {
 
   start_t_ = env_->NowMicros();
   zbd_->LockLevelMutex(lifetime_);
-
-  IOStatus s = zbd_->AllocateIOZone(lifetime_, io_type_, &zone);
-
+  zbd_->called_AllocateNewZone++;
+  IOStatus s;
+  s = zbd_->AllocateIOZone(lifetime_, io_type_, &zone);
+  
   if (!s.ok()) return s;
   if (!zone) {
     return IOStatus::NoSpace("Zone allocation failure\n");
@@ -495,6 +498,7 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
     uint64_t extent_length = wr_size;
 
     s = active_zone_->Append(buffer, wr_size + pad_sz);
+
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -620,15 +624,18 @@ IOStatus ZoneFile::Append(void* data, int data_size) {
 
     wr_size = left;
     if (wr_size > active_zone_->capacity_) wr_size = active_zone_->capacity_;
+    
 
     s = active_zone_->Append((char*)data + offset, wr_size);
+    
+
     if (!s.ok()) return s;
 
     file_size_ += wr_size;
     left -= wr_size;
     offset += wr_size;
   }
-
+  
   //zbd_->UnLockLevelMutex(lifetime_);
 
   return IOStatus::OK();
@@ -782,20 +789,21 @@ void ZoneFile::SetActiveZone(Zone* zone) {
   assert(active_zone_ == nullptr);
   assert(zone->IsBusy());
   active_zone_ = zone;
-
 }
 
 ZonedWritableFile::ZonedWritableFile(ZonedBlockDevice* zbd, bool _buffered,
-                                     std::shared_ptr<ZoneFile> zoneFile) {
+                                     std::shared_ptr<ZoneFile> zoneFile, bool is_sst) {
   assert(zoneFile->IsOpenForWR());
   wp = zoneFile->GetFileSize();
 
+  zbd_ = zbd;
+  is_sst_ = is_sst;
   buffered = _buffered;
   block_sz = zbd->GetBlockSize();
   zoneFile_ = zoneFile;
   buffer_pos = 0;
   sparse_buffer = nullptr;
-  buffer = nullptr;
+  buffer = nullptr;  
 
   if (buffered) {
     if (zoneFile->IsSparse()) {
@@ -834,7 +842,7 @@ ZonedWritableFile::~ZonedWritableFile() {
       free(buffer);
     }
   }
-
+  
   if (!s.ok()) {
     zoneFile_->GetZbd()->SetZoneDeferredStatus(s);
   }

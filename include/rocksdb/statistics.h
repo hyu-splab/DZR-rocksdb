@@ -97,6 +97,8 @@ enum Tickers : uint32_t {
 
   // # of memtable hits.
   MEMTABLE_HIT,
+  // JY
+  IMMEMTABLE_HIT,
   // # of memtable misses.
   MEMTABLE_MISS,
 
@@ -106,7 +108,14 @@ enum Tickers : uint32_t {
   GET_HIT_L1,
   // # of Get() queries served by L2 and up
   GET_HIT_L2_AND_UP,
-
+  // JY
+  GET_HIT_L2,
+  // JY
+  GET_HIT_L3,
+  // JY
+  GET_HIT_L4,
+  // JY
+  GET_HIT_L5,
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 4 reasons currently.

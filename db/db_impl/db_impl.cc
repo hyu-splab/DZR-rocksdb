@@ -2112,7 +2112,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
           get_impl_options.value->PinSelf();
         }
 
-        RecordTick(stats_, MEMTABLE_HIT);
+        // RecordTick(stats_, MEMTABLE_HIT);
+        RecordTick(stats_, IMMEMTABLE_HIT);
       }
     } else {
       // Get Merge Operands associated with key, Merge Operands should not be

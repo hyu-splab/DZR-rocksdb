@@ -23,7 +23,8 @@ class ZbdlibBackend : public ZonedBlockDeviceBackend {
   int read_f_;
   int read_direct_f_;
   int write_f_;
-
+  Env* env_;
+  
  public:
   explicit ZbdlibBackend(std::string bdevname);
   ~ZbdlibBackend() {

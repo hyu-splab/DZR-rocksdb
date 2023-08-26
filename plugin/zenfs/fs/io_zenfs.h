@@ -83,10 +83,9 @@ class ZoneFile {
   std::atomic<int64_t> start_t_{0};
   std::atomic<int64_t> end_t_{0};
 
-
  public:
   static const int SPARSE_HEADER_SIZE = 8;
-
+  bool is_sst_;
   explicit ZoneFile(ZonedBlockDevice* zbd, uint64_t file_id_,
                     MetadataWriter* metadata_writer);
 
@@ -96,6 +95,8 @@ class ZoneFile {
   bool TryAcquireWRLock();
   void ReleaseWRLock();
 
+  uint64_t GetSSTBlockingTime();
+  uint64_t GetIOTime();
   IOStatus CloseWR();
   bool IsOpenForWR();
 
@@ -197,7 +198,7 @@ class ZoneFile {
 class ZonedWritableFile : public FSWritableFile {
  public:
   explicit ZonedWritableFile(ZonedBlockDevice* zbd, bool buffered,
-                             std::shared_ptr<ZoneFile> zoneFile);
+                             std::shared_ptr<ZoneFile> zoneFile, bool is_sst);
   virtual ~ZonedWritableFile();
 
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
@@ -245,6 +246,7 @@ class ZonedWritableFile : public FSWritableFile {
   IOStatus DataSync();
   IOStatus CloseInternal();
 
+  bool is_sst_;
   bool buffered;
   char* sparse_buffer;
   char* buffer;
@@ -254,7 +256,8 @@ class ZonedWritableFile : public FSWritableFile {
   uint64_t wp;
   int write_temp;
   bool open;
-
+  ZonedBlockDevice *zbd_;
+  
   std::shared_ptr<ZoneFile> zoneFile_;
   MetadataWriter* metadata_writer_;
 

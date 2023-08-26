@@ -44,10 +44,12 @@ class Superblock {
   uint32_t block_size_ = 0; /* in bytes */
   uint32_t zone_size_ = 0;  /* in blocks */
   uint32_t nr_zones_ = 0;
+  uint32_t max_background_jobs_ = 0;
   char aux_fs_path_[256] = {0};
   uint32_t finish_treshold_ = 0;
   char zenfs_version_[64]{0};
-  char reserved_[123] = {0};
+  char reserved_[119] = {0};
+  // char reserved_[123] = {0};
 
  public:
   const uint32_t MAGIC = 0x5a454e46; /* ZENF */
@@ -61,7 +63,7 @@ class Superblock {
   /* Create a superblock for a filesystem covering the entire zoned block device
    */
   Superblock(ZonedBlockDevice* zbd, std::string aux_fs_path = "",
-             uint32_t finish_threshold = 0, bool enable_gc = false) {
+             uint32_t finish_threshold = 0, bool enable_gc = false, uint32_t max_background_jobs=0) {
     std::string uuid = Env::Default()->GenerateUniqueId();
     int uuid_len =
         std::min(uuid.length(),
@@ -73,6 +75,7 @@ class Superblock {
     if (enable_gc) flags_ |= FLAGS_ENABLE_GC;
 
     finish_treshold_ = finish_threshold;
+    max_background_jobs_ = max_background_jobs;
 
     block_size_ = zbd->GetBlockSize();
     zone_size_ = zbd->GetZoneSize() / block_size_;
@@ -93,6 +96,7 @@ class Superblock {
   uint32_t GetSeq() { return sequence_; }
   std::string GetAuxFsPath() { return std::string(aux_fs_path_); }
   uint32_t GetFinishTreshold() { return finish_treshold_; }
+  uint32_t GetMaxBackgroundJobThread() { return max_background_jobs_; }
   std::string GetUUID() { return std::string(uuid_); }
   bool IsGCEnabled() { return flags_ & FLAGS_ENABLE_GC; };
 };
@@ -148,11 +152,23 @@ class ZenFS : public FileSystemWrapper {
 
   std::unique_ptr<std::thread> gc_worker_ = nullptr;
   std::unique_ptr<std::thread> DZA_worker_ = nullptr;
-
-  bool run_gc_worker_ = false;
-  bool run_DZA_worker_ = true;
+  std::unique_ptr<std::thread> finish_worker_ = nullptr;
   
+  std::vector<double> victim_zone_utils;
+  // std::vector<double> gc_zone_utils;
+  std::vector<std::pair<uint32_t, uint64_t>> gc_zone_utils; // free space, copied data
+  std::vector<uint32_t> victim_zone_cnts;
+  std::vector<uint64_t> free_percents;
+  uint32_t ext_count_ = 0;
+  
+  bool run_gc_worker_ = false;
+  bool run_DZA_worker_ = false;
+  bool run_finish_worker_ = false;
+
   std::uint64_t total_copied_data_size = 0;
+  std::uint64_t total_copied_data_size2 = 0;
+  std::uint64_t total_GC_count = 0;
+  std::uint64_t total_vcitimzone_num = 0;
   double total_elapsed_time = 0;
 
   struct ZenFSMetadataWriter : public MetadataWriter {
@@ -285,8 +301,7 @@ class ZenFS : public FileSystemWrapper {
   virtual ~ZenFS();
 
   Status Mount(bool readonly);
-  Status MkFS(std::string aux_fs_path, uint32_t finish_threshold,
-              bool enable_gc);
+  Status MkFS(std::string aux_fs_path, uint32_t finish_threshold, bool enable_gc, uint32_t max_background_jobs);
   std::map<std::string, Env::WriteLifeTimeHint> GetWriteLifeTimeHints();
 
   const char* Name() const override {
@@ -457,17 +472,18 @@ class ZenFS : public FileSystemWrapper {
   void GetZenFSSnapshot(ZenFSSnapshot& snapshot,
                         const ZenFSSnapshotOptions& options);
 
-  IOStatus MigrateExtents(const std::vector<ZoneExtentSnapshot*>& extents);
+  IOStatus MigrateExtents(const std::vector<ZoneExtentSnapshot*>& extents, std::unordered_map<uint64_t, uint32_t>& zone_copied_data);
 
   IOStatus MigrateFileExtents(
       const std::string& fname,
-      const std::vector<ZoneExtentSnapshot*>& migrate_exts);
+      const std::vector<ZoneExtentSnapshot*>& migrate_exts, std::unordered_map<uint64_t, uint32_t>& zone_copied_data);
 
   private:
-    const uint64_t GC_START_LEVEL = 30; /* Enable GC when < 20% free space available */
-    const uint64_t GC_SLOPE = 6; /* GC agressiveness */
+    const uint64_t GC_START_LEVEL = 90; /* Enable GC when < 20% free space available */
+    const uint64_t GC_SLOPE = 3; /* GC agressiveness */
     void GCWorker();
     void DZAWorker();
+    void FinishWorker();
 };
 #endif  // !defined(ROCKSDB_LITE) && defined(OS_LINUX)
 

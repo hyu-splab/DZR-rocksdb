@@ -2322,12 +2322,26 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        // if (fp.GetHitFileLevel() == 0) {
+        //   RecordTick(db_statistics_, GET_HIT_L0);
+        // } else if (fp.GetHitFileLevel() == 1) {
+        //   RecordTick(db_statistics_, GET_HIT_L1);
+        // } else if (fp.GetHitFileLevel() >= 2) {
+        //   RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        // }
+
         if (fp.GetHitFileLevel() == 0) {
           RecordTick(db_statistics_, GET_HIT_L0);
         } else if (fp.GetHitFileLevel() == 1) {
           RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (fp.GetHitFileLevel() >= 2) {
-          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        } else if (fp.GetHitFileLevel() == 2) {
+          RecordTick(db_statistics_, GET_HIT_L2);
+        } else if (fp.GetHitFileLevel() == 3) {
+          RecordTick(db_statistics_, GET_HIT_L3);
+        } else if (fp.GetHitFileLevel() == 4) {
+          RecordTick(db_statistics_, GET_HIT_L4);
+        } else if (fp.GetHitFileLevel() == 5) {
+          RecordTick(db_statistics_, GET_HIT_L5);
         }
 
         PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
